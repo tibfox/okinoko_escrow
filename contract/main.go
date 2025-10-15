@@ -12,7 +12,7 @@ func main() {
 }
 
 const (
-	maxNameLength = 100 // maxNameLength is the maximum length for collection or NFT names.
+	maxNameLength = 100 // maxNameLength for an escrow
 )
 
 type EscrowAccount struct {
@@ -301,7 +301,7 @@ func UInt64ToString(val uint64) string {
 // indexing helpers
 
 const (
-	NFTsCount   = "cnt:n" //                  // holds a int counter for nfts (to create new ids)
+	NFTsCount   = "cnt:n" //                  // copy & paste error (have to keep it in the code so the contract is verifyable)
 	EscrowCount = "cnt:e" //                  // holds a int counter for escrows (to create new ids)
 )
 
