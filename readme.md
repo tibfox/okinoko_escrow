@@ -111,8 +111,8 @@ Each escrow can be in one of two terminal states:
 
 | State    | Description                       | Outcome                                         |
 | -------- | --------------------------------- | ----------------------------------------------- |
-| `open`   | Awaiting decisions                | Pending                                         |
-| `closed` | Finalized after majority decision | `release` (to receiver) or `refund` (to sender) |
+| `open`   | Awaiting decisions                | `p` (pending)                                         |
+| `closed` | Finalized after majority decision | `r` (reelase to receiver) or `f` (refund to sender) |
 
 ### Example
 
@@ -123,7 +123,7 @@ Escrow #42
 ├── To: hive:freelancer2
 ├── Arbitrator: hive:escrowhub
 ├── Amount: 100.000 HBD
-├── Outcome: pending
+├── Outcome: p
 └── Closed: false
 ```
 
@@ -198,14 +198,14 @@ Retrieves a full escrow object by ID.
 ```json
 {
   "id": 42,
-  "name": "Design Project",
-  "from": {"address": "hive:client1", "agree": null},
-  "to": {"address": "hive:freelancer2", "agree": true},
+  "n": "Design Project",
+  "f": {"address": "hive:client1", "agree": null},
+  "t": {"address": "hive:freelancer2", "agree": true},
   "arb": {"address": "hive:escrowhub", "agree": true},
-  "amount": 100.0,
-  "asset": "HBD",
-  "closed": true,
-  "outcome": "release"
+  "am": 100.0,
+  "as": "HBD",
+  "cl": true,
+  "o": "r"
 }
 ```
 
@@ -218,7 +218,7 @@ All events are structured as JSON objects with `type`, `attributes`, and `tx` fi
 
 | Event Type        | Key Attributes                               | Description                   |
 | ----------------- | -------------------------------------------- | ----------------------------- |
-| `escrow_created`  | `id`, `from`, `to`, `arb`, `amount`, `asset` | New escrow created            |
+| `escrow_created`  | `id`, `f`, `t`, `arb`, `amount`, `asset` | New escrow created            |
 | `escrow_decision` | `id`, `byRole`, `byAddress`, `decision`      | A participant made a decision |
 | `escrow_closed`   | `id`, `outcome`                              | Escrow finalized              |
 
@@ -228,14 +228,14 @@ All events are structured as JSON objects with `type`, `attributes`, and `tx` fi
 
 ```json
 {
-  "type": "escrow_created",
+  "type": "cr",
   "attributes": {
     "id": "42",
-    "from": "hive:client1",
-    "to": "hive:freelancer2",
+    "f": "hive:client1",
+    "t": "hive:freelancer2",
     "arb": "hive:escrowhub",
-    "amount": "100.000",
-    "asset": "HBD"
+    "am": "100.000",
+    "as": "HBD"
   },
   "tx":"txId of creation"
 }
@@ -245,12 +245,12 @@ All events are structured as JSON objects with `type`, `attributes`, and `tx` fi
 
 ```json
 {
-  "type": "escrow_decision",
+  "type": "de",
   "attributes": {
     "id": "42",
-    "byRole": "To",
-    "byAddress": "hive:freelancer2",
-    "decision": "true"
+    "r": "To",
+    "a": "hive:freelancer2",
+    "d": "true"
   },
   "tx":"txId of decision"
 }
@@ -260,10 +260,10 @@ All events are structured as JSON objects with `type`, `attributes`, and `tx` fi
 
 ```json
 {
-  "type": "escrow_closed",
+  "type": "cl",
   "attributes": {
     "id": "42",
-    "outcome": "release"
+    "o": "r"
   },
   "tx":"txId of resolving decision"
 }
