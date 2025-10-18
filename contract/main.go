@@ -8,46 +8,61 @@ import (
 	"strings"
 )
 
-func main() {
-	// exact code within other files of conrtact folder
-}
+// main is required for WASM targets; contract logic is exposed via exported functions.
+func main() {}
 
 const (
-	maxNameLength = 100 // maxNameLength for an escrow
+	maxNameLength = 100
 
-	DecisionUnset   uint8 = 0
-	DecisionRefund  uint8 = 1
+	// DecisionUnset indicates no decision has been made.
+	DecisionUnset uint8 = 0
+	// DecisionRefund indicates a refund decision.
+	DecisionRefund uint8 = 1
+	// DecisionRelease indicates a release decision.
 	DecisionRelease uint8 = 2
 )
 
+// =====================
+// Data Types
+// =====================
+
+// EscrowAccount represents an escrow participant and their decision.
 type EscrowAccount struct {
-	Address  string `json:"address"`
-	Decision uint8  `json:"decision"`
+	Address  string `json:"a"`
+	Decision string `json:"d"`
 }
 
+// Escrow describes an escrow instance and its state.
 type Escrow struct {
 	ID         uint64        `json:"id"`
-	Name       string        `json:"name"`
-	From       EscrowAccount `json:"from"`
-	To         EscrowAccount `json:"to"`
+	Name       string        `json:"n"`
+	From       EscrowAccount `json:"f"`
+	To         EscrowAccount `json:"t"`
 	Arbitrator EscrowAccount `json:"arb"`
-	Amount     float64       `json:"amount"`
-	Asset      string        `json:"asset"`
-	Closed     bool          `json:"closed"` // false = open / true = closed
-	Outcome    uint8         `json:"outcome"`
+	Amount     float64       `json:"am"`
+	Asset      string        `json:"as"`
+	Closed     bool          `json:"cl"`
+	Outcome    uint8         `json:"o"`
 }
 
+// CreateEscrowArgs are arguments to create a new escrow.
 type CreateEscrowArgs struct {
-	Name       string // n
-	To         string // t
-	Arbitrator string // a
+	Name       string
+	To         string
+	Arbitrator string
 }
 
+// DecisionArgs are arguments to add a decision to an escrow.
 type DecisionArgs struct {
-	EscrowID uint64 // id
-	Decision uint8  // d
+	EscrowID uint64
+	Decision uint8
 }
 
+// =====================
+// Parsing Utilities
+// =====================
+
+// CsvToCreateEscrowArgs parses a pipe-delimited string into CreateEscrowArgs (Name|To|Arbitrator).
 func CsvToCreateEscrowArgs(csv *string) CreateEscrowArgs {
 	if csv == nil || *csv == "" {
 		sdk.Abort("input CSV is nil or empty")
@@ -65,6 +80,8 @@ func CsvToCreateEscrowArgs(csv *string) CreateEscrowArgs {
 	}
 }
 
+// CsvToDecisionArgs parses a pipe-delimited string into DecisionArgs (EscrowID|Decision).
+// Decision accepts true/false (case-insensitive) or 1/0.
 func CsvToDecisionArgs(csv *string) DecisionArgs {
 	if csv == nil || *csv == "" {
 		sdk.Abort("input CSV is nil or empty")
@@ -76,15 +93,14 @@ func CsvToDecisionArgs(csv *string) DecisionArgs {
 		sdk.Abort("invalid CSV format: expected EscrowID|Decision")
 	}
 
-	// Parse EscrowID (before '|')
+	// Parse escrow ID (left of '|').
 	escrowIDValue, err := strconv.ParseUint(data[:sep], 10, 64)
 	if err != nil {
 		sdk.Abort("invalid EscrowID: must be a number")
 	}
 
-	// Parse decision (after '|')
-	decStr := data[sep+1:] // substring decision
-	// trim spaces manually (no alloc)
+	// Parse decision (right of '|'), trimming spaces without allocations.
+	decStr := data[sep+1:]
 	i, j := 0, len(decStr)-1
 	for i <= j && decStr[i] == ' ' {
 		i++
@@ -93,20 +109,15 @@ func CsvToDecisionArgs(csv *string) DecisionArgs {
 		j--
 	}
 	decStr = decStr[i : j+1]
-	decLen := len(decStr)
 
 	var decision uint8
-
-	// Minimal, strict check (case-insensitive)
-	if decLen == 4 && (decStr == "true" || decStr == "TRUE" || decStr == "True") {
+	// Map common boolean/bit encodings to protocol decisions.
+	switch decStr {
+	case "true", "TRUE", "True", "1":
 		decision = DecisionRelease
-	} else if decLen == 5 && (decStr == "false" || decStr == "FALSE" || decStr == "False") {
+	case "false", "FALSE", "False", "0":
 		decision = DecisionRefund
-	} else if decLen == 1 && decStr[0] == '1' {
-		decision = DecisionRelease
-	} else if decLen == 1 && decStr[0] == '0' {
-		decision = DecisionRefund
-	} else {
+	default:
 		sdk.Abort("invalid decision: must be true/false or 1/0")
 	}
 
@@ -116,6 +127,7 @@ func CsvToDecisionArgs(csv *string) DecisionArgs {
 	}
 }
 
+// CsvToReward parses a pipe-delimited reward string into amount and asset (amount|asset).
 func CsvToReward(csv *string) (uint64, string) {
 	if csv == nil || *csv == "" {
 		sdk.Abort("reward is empty")
@@ -134,6 +146,12 @@ func CsvToReward(csv *string) (uint64, string) {
 	return amount, data[sep+1:]
 }
 
+// =====================
+// WASM Exports
+// =====================
+
+// CreateEscrow creates a new escrow from the provided payload.
+//
 //go:wasmexport e_create
 func CreateEscrow(payload *string) *string {
 	input := CsvToCreateEscrowArgs(payload)
@@ -156,8 +174,13 @@ func CreateEscrow(payload *string) *string {
 		sdk.Abort("receiver must differ from sender")
 	}
 
+	// Lock funds into escrow as per the transfer.allow intent.
 	sdk.HiveDraw(int64(ta.LimitMilli), ta.Token)
+
+	// Persist base escrow name.
 	saveEscrowBase(escrowID, input.Name)
+
+	// Persist roles as a compact pipe-delimited string: from|to|arb.
 	var sb strings.Builder
 	sb.Grow(len(*creator) + len(input.To) + len(input.Arbitrator) + 2)
 	sb.WriteString(*creator)
@@ -167,10 +190,13 @@ func CreateEscrow(payload *string) *string {
 	sb.WriteString(input.Arbitrator)
 	saveEscrowParties(escrowID, sb.String())
 
+	// Persist reward (amount + asset).
 	saveEscrowReward(escrowID, ta.LimitMilli, ta.Token.String())
 
+	// Initialize decisions (unset for all three parties).
 	saveEscrowDecisions(escrowID, []uint8{DecisionUnset, DecisionUnset, DecisionUnset})
 
+	// Emit creation event and return escrow ID.
 	txID := sdk.GetEnvKey("tx.id")
 	EmitEscrowCreatedEvent(
 		escrowID,
@@ -184,6 +210,8 @@ func CreateEscrow(payload *string) *string {
 	return &result
 }
 
+// AddDecision records a decision for the sender in the given escrow.
+//
 //go:wasmexport e_decide
 func AddDecision(payload *string) *string {
 	input := CsvToDecisionArgs(payload)
@@ -195,23 +223,18 @@ func AddDecision(payload *string) *string {
 		sdk.Abort("sender not part of the escrow")
 	}
 
-	// Step 2: Load all decisions
 	decs := loadDecisions(input.EscrowID)
 
-	// Step 3: Check if closed
-	c, _ := getEscrowOutcome(decs)
-	if c {
+	// Disallow voting on a closed escrow.
+	if closed, _ := getEscrowOutcome(decs); closed {
 		sdk.Abort("escrow already closed")
 	}
 
-	// Step 4: Set decision for this role
-	roleIndex := *role // dereference the pointer to get the uint8 value
-	// if int(roleIndex) >= len(decs) {
-	// 	sdk.Abort("invalid role index for decision array") // will probably never happen..
-	// }
+	// Record this sender's decision in their role slot.
+	roleIndex := *role
 	decs[roleIndex] = input.Decision
 
-	// Step 5: Save decisions back to state
+	// Persist decision updates and process possible outcome.
 	saveEscrowDecisions(input.EscrowID, decs)
 	txID := sdk.GetEnvKey("tx.id")
 	processEscrowOutcome(input.EscrowID, decs, *txID)
@@ -219,24 +242,13 @@ func AddDecision(payload *string) *string {
 		input.EscrowID,
 		friendlyRoleName(*role),
 		*sender,
-		input.Decision == DecisionRelease,
+		input.Decision,
 		*txID)
 	return nil
 }
 
-func friendlyRoleName(r uint8) string {
-	switch r {
-	case 0:
-		return "f"
-	case 1:
-		return "t"
-	default:
-		return "arb"
-	}
-}
-
-// GETTERS
-
+// GetEscrow returns escrow details by ID.
+//
 //go:wasmexport e_get
 func GetEscrow(id *string) *string {
 	escrowBase := sdk.StateGetObject(*id)
@@ -253,15 +265,15 @@ func GetEscrow(id *string) *string {
 		Name: *escrowBase,
 		From: EscrowAccount{
 			Address:  escrowParties[0],
-			Decision: escrowDecisions[0],
+			Decision: friendlyOutcome(escrowDecisions[0]),
 		},
 		To: EscrowAccount{
 			Address:  escrowParties[1],
-			Decision: escrowDecisions[1],
+			Decision: friendlyOutcome(escrowDecisions[1]),
 		},
 		Arbitrator: EscrowAccount{
 			Address:  escrowParties[2],
-			Decision: escrowDecisions[2],
+			Decision: friendlyOutcome(escrowDecisions[2]),
 		},
 		Amount:  float64(am) / 1000,
 		Asset:   as,
@@ -273,30 +285,26 @@ func GetEscrow(id *string) *string {
 	return &jsonStr
 }
 
-// STATE PERSISTENCE & LOADING
+// =====================
+// State Persistence & Loading
+// =====================
 
+// saveEscrowBase stores the base escrow name and increments the global counter.
 func saveEscrowBase(escrowID uint64, escrowCsv string) error {
-	// Build a proper key for storing the escrow base
 	key := strconv.FormatUint(escrowID, 10)
-
-	// Save escrow data
 	sdk.StateSetObject(key, escrowCsv)
-
-	// increment
 	setEscrowCount(escrowID + 1)
-
 	return nil
 }
 
+// saveEscrowParties stores the from|to|arb addresses for an escrow.
 func saveEscrowParties(escrowID uint64, escrowPartiesCsv string) error {
-	// Build a proper key for storing the escrow addresses
 	key := strconv.FormatUint(escrowID, 10) + "|p"
-	// Save escrow data
 	sdk.StateSetObject(key, escrowPartiesCsv)
-
 	return nil
 }
 
+// saveEscrowReward stores the amount (milli) and asset for an escrow.
 func saveEscrowReward(escrowID uint64, amount uint64, asset string) error {
 	key := strconv.FormatUint(escrowID, 10) + "|r"
 	buf := make([]byte, 0, 32+len(asset))
@@ -307,17 +315,16 @@ func saveEscrowReward(escrowID uint64, amount uint64, asset string) error {
 	return nil
 }
 
+// saveEscrowDecisions stores the three decision bytes (from, to, arb).
 func saveEscrowDecisions(escrowID uint64, decs []uint8) error {
-	// Convert []uint8 to []byte with direct copy (byte is alias of uint8)
 	b := make([]byte, len(decs))
-	copy(b, decs) // fast native memory copy
+	copy(b, decs)
 	key := strconv.FormatUint(escrowID, 10) + "|d"
 	sdk.StateSetObject(key, string(b))
 	return nil
 }
 
-// HELPERS
-
+// loadRoles retrieves the from|to|arb addresses for an escrow.
 func loadRoles(escrowID uint64) []string {
 	key := strconv.FormatUint(escrowID, 10) + "|p"
 	ptr := sdk.StateGetObject(key)
@@ -340,6 +347,7 @@ func loadRoles(escrowID uint64) []string {
 	return roles
 }
 
+// loadDecisions retrieves the three decision bytes (from, to, arb).
 func loadDecisions(escrowID uint64) []uint8 {
 	key := strconv.FormatUint(escrowID, 10) + "|d"
 	ptr := sdk.StateGetObject(key)
@@ -355,8 +363,11 @@ func loadDecisions(escrowID uint64) []uint8 {
 	return decs
 }
 
-// VALIDATORS
+// =====================
+// Validators
+// =====================
 
+// Validate checks the semantic correctness of CreateEscrowArgs.
 func (c *CreateEscrowArgs) Validate(callerAddress string) {
 	if c.Name == "" {
 		sdk.Abort("name is mandatory")
@@ -370,30 +381,36 @@ func (c *CreateEscrowArgs) Validate(callerAddress string) {
 	if c.Arbitrator == "" {
 		sdk.Abort("arbitrator is mandatory")
 	}
+	// Arbitrator must be neutral and not overlap with participants.
 	if c.Arbitrator == c.To || c.Arbitrator == callerAddress {
 		sdk.Abort("arbitrator must be 3rd party")
 	}
 }
 
-// COMMON HELPERS
+// =====================
+// Common Helpers
+// =====================
 
+// getRoleOfSender returns the role index (0=from,1=to,2=arb) of the sender, if any.
 func getRoleOfSender(sender *string, parties []string) *uint8 {
 	if sender == nil {
 		return nil
 	}
 	for i, p := range parties {
 		if p == *sender {
-			role := uint8(i) // create a variable
-			return &role     // return its pointer
+			role := uint8(i)
+			return &role
 		}
 	}
-	return nil // not found
+	return nil
 }
 
+// getEscrowOutcome determines whether the escrow is closed and its outcome.
+// The escrow closes when at least two parties agree on the same decision.
 func getEscrowOutcome(decs []uint8) (bool, uint8) {
 	counts := [3]uint8{}
 	for _, d := range decs {
-		if d > DecisionRelease { // 0..2 only
+		if d > DecisionRelease {
 			sdk.Abort("invalid decision value in state")
 		}
 		if d != DecisionUnset {
@@ -406,17 +423,47 @@ func getEscrowOutcome(decs []uint8) (bool, uint8) {
 	return false, DecisionUnset
 }
 
+// loadReward retrieves the escrow amount (milli) and asset.
 func loadReward(escrowID uint64) (amount uint64, asset string) {
 	key := strconv.FormatUint(escrowID, 10) + "|r"
 	ptr := sdk.StateGetObject(key)
 	if ptr == nil || *ptr == "" {
 		sdk.Abort(fmt.Sprintf("amount for escrow %d not found", escrowID))
 	}
-
 	return CsvToReward(ptr)
-
 }
 
+// friendlyRoleName returns the compact role label used in events.
+func friendlyRoleName(r uint8) string {
+	switch r {
+	case 0:
+		return "f"
+	case 1:
+		return "t"
+	default:
+		return "arb"
+	}
+}
+
+// processEscrowOutcome finalizes transfers and emits a close event when consensus is reached.
+func processEscrowOutcome(escrowID uint64, decs []uint8, txId string) {
+	if closed, outcome := getEscrowOutcome(decs); closed {
+		am, as := loadReward(escrowID)
+		r := loadRoles(escrowID)
+
+		// Route funds based on outcome consensus.
+		switch outcome {
+		case DecisionRefund:
+			sdk.HiveTransfer(sdk.Address(r[0]), int64(am), sdk.Asset(as)) // creator
+		case DecisionRelease:
+			sdk.HiveTransfer(sdk.Address(r[1]), int64(am), sdk.Asset(as)) // receiver
+		}
+
+		EmitEscrowClosedEvent(escrowID, friendlyOutcome(outcome), txId)
+	}
+}
+
+// friendlyOutcome returns a human-readable outcome label.
 func friendlyOutcome(o uint8) string {
 	switch o {
 	case DecisionRefund:
@@ -428,27 +475,7 @@ func friendlyOutcome(o uint8) string {
 	}
 }
 
-func processEscrowOutcome(escrowID uint64, decs []uint8, txId string) {
-	c, o := getEscrowOutcome(decs)
-	if c {
-		am, as := loadReward(escrowID)
-		r := loadRoles(escrowID)
-		switch o {
-		case DecisionRefund:
-			receiver := r[0] // escrow creator
-			sdk.HiveTransfer(sdk.Address(receiver), int64(am), sdk.Asset(as))
-		case DecisionRelease:
-			receiver := r[1] // escrow receiver
-			sdk.HiveTransfer(sdk.Address(receiver), int64(am), sdk.Asset(as))
-		}
-		EmitEscrowClosedEvent(escrowID, friendlyOutcome(o), txId)
-	}
-}
-
-// GENERAL HELPERS
-
-// Conversions from/to json strings
-
+// ToJSON marshals a value as JSON, aborting on error.
 func ToJSON[T any](v T, objectType string) string {
 	b, err := json.Marshal(v)
 	if err != nil {
@@ -457,19 +484,19 @@ func ToJSON[T any](v T, objectType string) string {
 	return string(b)
 }
 
+// StringToUInt64 parses a decimal string into a uint64, aborting on error.
 func StringToUInt64(ptr *string) uint64 {
 	if ptr == nil {
 		sdk.Abort("input is empty")
 	}
-	val, err := strconv.ParseUint(*ptr, 10, 64) // base 10, 64-bit
+	val, err := strconv.ParseUint(*ptr, 10, 64)
 	if err != nil {
 		sdk.Abort(fmt.Sprintf("failed to parse '%s' to uint64: %v", *ptr, err))
 	}
 	return val
 }
 
-// EscrowID Helpers
-
+// newEscrowID reads the next escrow ID from state; defaults to 0 if unset.
 func newEscrowID() uint64 {
 	ptr := sdk.StateGetObject("cnt:e")
 	if ptr == nil || *ptr == "" {
@@ -478,23 +505,24 @@ func newEscrowID() uint64 {
 	return StringToUInt64(ptr)
 }
 
+// setEscrowCount persists the next escrow ID counter.
 func setEscrowCount(n uint64) {
 	sdk.StateSetObject("cnt:e", strconv.FormatUint(n, 10))
 }
 
-// Transfer Allow Intent Helpers
+// =====================
+// Transfer-Allow Intent
+// =====================
 
-// TransferAllow represents a parsed transfer.allow intent,
-// including the limit (amount) and token (asset).
+// TransferAllow represents a parsed transfer.allow intent.
 type TransferAllow struct {
 	LimitMilli uint64
 	Token      sdk.Asset
 }
 
-// validAssets defines the list of supported assets for transfer intents.
 var validAssets = []string{sdk.AssetHbd.String(), sdk.AssetHive.String()}
 
-// isValidAsset checks whether a given token string is a supported asset.
+// isValidAsset checks the token against supported assets.
 func isValidAsset(token string) bool {
 	for _, a := range validAssets {
 		if token == a {
@@ -504,8 +532,7 @@ func isValidAsset(token string) bool {
 	return false
 }
 
-// GetFirstTransferAllow searches the provided intents and returns the first
-// valid transfer.allow intent as a TransferAllow. Returns nil if none exist.
+// GetFirstTransferAllow returns the first valid transfer.allow intent or nil.
 func GetFirstTransferAllow(intents []sdk.Intent) *TransferAllow {
 	for _, intent := range intents {
 		if intent.Type == "transfer.allow" {
@@ -530,11 +557,13 @@ func GetFirstTransferAllow(intents []sdk.Intent) *TransferAllow {
 	return nil
 }
 
+// parseLimitMilli parses a decimal string into thousandths (milli) with up to 3 fractional digits.
+// Extra fractional precision is truncated (floor).
 func parseLimitMilli(s string) (uint64, bool) {
 	if s == "" {
 		return 0, false
 	}
-	// no leading +/-, exponent, or spaces allowed
+	// Reject spaces/signs/exponents; allow digits and a single dot.
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		if (c < '0' || c > '9') && c != '.' {
@@ -558,41 +587,38 @@ func parseLimitMilli(s string) (uint64, bool) {
 		}
 		d := uint64(c - '0')
 		if !sawDot {
-			// intPart = intPart*10 + d
-			// multiply by 10 with overflow check (practically safe for typical limits)
 			intPart = intPart*10 + d
+			// Cheap overflow guard for later *1000.
 			if intPart > ^uint64(0)/1000 {
 				return 0, false
 			}
 		} else if fracDigits < 3 {
-			// take up to first 3 fractional digits; floor extra
 			fracPart = fracPart*10 + d
 			fracDigits++
-		} else {
-			// extra fractional digits are ignored (floor)
 		}
 	}
 
-	// pad fractional to 3 digits
+	// Pad to milli.
 	for fracDigits < 3 {
 		fracPart *= 10
 		fracDigits++
 	}
 
-	// milli = intPart*1000 + fracPart
 	return intPart*1000 + fracPart, true
 }
 
-// EVENTS
+// =====================
+// Events
+// =====================
 
-// Event represents a generic event emitted by the contract.
+// Event represents a generic contract event.
 type Event struct {
-	Type       string            `json:"type"`       // Type is the kind of event (e.g., "mint", "transfer").
-	Attributes map[string]string `json:"attributes"` // Attributes are key/value pairs with event data.
+	Type       string            `json:"type"`
+	Attributes map[string]string `json:"attributes"`
 	TxID       string            `json:"tx"`
 }
 
-// emitEvent constructs and logs an event as JSON.
+// emitEvent logs an event as JSON.
 func emitEvent(eventType string, attributes map[string]string, txID string) {
 	event := Event{
 		Type:       eventType,
@@ -602,7 +628,7 @@ func emitEvent(eventType string, attributes map[string]string, txID string) {
 	sdk.Log(ToJSON(event, eventType+" event data"))
 }
 
-// EmitEscrowCreatedEvent emits an event for creating a new escrow.
+// EmitEscrowCreatedEvent emits an event for a newly created escrow.
 func EmitEscrowCreatedEvent(escrowID uint64, fromAddress string, toAddress string, arbAddress string, amount float64, asset string, txID string) {
 	emitEvent("cr", map[string]string{
 		"id":  strconv.FormatUint(escrowID, 10),
@@ -615,16 +641,16 @@ func EmitEscrowCreatedEvent(escrowID uint64, fromAddress string, toAddress strin
 }
 
 // EmitEscrowDecisionEvent emits an event for a new decision.
-func EmitEscrowDecisionEvent(escrowID uint64, role string, address string, decision bool, txID string) {
+func EmitEscrowDecisionEvent(escrowID uint64, role string, address string, decisionId uint8, txID string) {
 	emitEvent("de", map[string]string{
 		"id": strconv.FormatUint(escrowID, 10),
 		"r":  role,
 		"a":  address,
-		"d":  strconv.FormatBool(decision),
+		"d":  friendlyOutcome(decisionId),
 	}, txID)
 }
 
-// EmitEscrowClosedEvent emits an event for closing an escrow.
+// EmitEscrowClosedEvent emits an event for a closed escrow.
 func EmitEscrowClosedEvent(escrowID uint64, outcome string, txID string) {
 	emitEvent("cl", map[string]string{
 		"id": strconv.FormatUint(escrowID, 10),

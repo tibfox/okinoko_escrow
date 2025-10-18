@@ -1,13 +1,14 @@
-# Okinoko Escrow Smart Contract
+# Okinoko Escrow Smart Contract v3
 
 This repository contains a **smart contract written in Go** for the [vsc ecosystem](https://github.com/vsc-eco/).
 The contract provides an **on-chain escrow mechanism** between two parties with an **optional third-party arbitrator** to resolve disputes.
 
 ## 📖 Overview
 
-* **Language:** Go (Golang) 1.23.2+
+* **Language:** Go (Golang) 1.24.0
 * **Purpose:** Provides functions to create and handle escrow agreements between Hive users.
 * **Core Features:**
+
   * On-chain creation of escrows via *transfer allow* intents
   * Multi-party decision model (sender, receiver, arbitrator)
   * Automatic payout to receiver or refund to sender based on majority decision
@@ -21,14 +22,14 @@ For security, @bob asks @carol (who is not best buddies with either of them and 
 
 #### 🧾 Step 1: Bob creates the escrow
 
-@bob sends the following `custom_json` transaction (id = "vsc.call") via Hive Keychain, signing with his **active key**:
+@bob sends the following `custom_json` transaction (id = "vsc.call") via Hive Keychain or [Ōkinoko Terminal](https://terminal.okinoko.io/), signing with his **active key**:
 
 ```json
 {
   "net_id": "vsc-mainnet",
   "contract_id": "vsc1BonkE2CtHqjnkFdH8hoAEMP25bbWhSr3UA",
   "action": "e_create",
-  "payload": "{\"name\":\"Creating My Website\",\"to\":\"hive:alice\",\"arb\":\"hive:carol\"}",
+  "payload": "Creating My Website|hive:alice|hive:carol",
   "intents": [
     {
       "type": "transfer.allow",
@@ -53,13 +54,13 @@ After finishing the website, @alice checks all agreed-upon requirements and repo
   "net_id": "vsc-mainnet",
   "contract_id": "vsc1BonkE2CtHqjnkFdH8hoAEMP25bbWhSr3UA",
   "action": "e_decide",
-  "payload": "{\"id\":123,\"d\":true}",
+  "payload": "123|true",
   "intents": [],
   "rcLimit": 10000
 }
 ```
 
-This indicates that she believes the project has been successfully completed (`escrow id = 123` & `d = true`).
+This indicates that she believes the project has been successfully completed (`escrow id = 123` & `decision = true`).
 
 #### 🙅 Step 3: Bob disagrees
 
@@ -70,13 +71,13 @@ This indicates that she believes the project has been successfully completed (`e
   "net_id": "vsc-mainnet",
   "contract_id": "vsc1BonkE2CtHqjnkFdH8hoAEMP25bbWhSr3UA",
   "action": "e_decide",
-  "payload": "{\"id\":123,\"d\":false}",
+  "payload": "123|false",
   "intents": [],
   "rcLimit": 10000
 }
 ```
 
-This means @bob does **not** agree to release the funds yet (`d = false`).
+This means @bob does **not** agree to release the funds yet (`decision = false`).
 
 #### ⚖️ Step 4: Arbitration and final decision
 
@@ -87,13 +88,13 @@ This means @bob does **not** agree to release the funds yet (`d = false`).
   "net_id": "vsc-mainnet",
   "contract_id": "vsc1BonkE2CtHqjnkFdH8hoAEMP25bbWhSr3UA",
   "action": "e_decide",
-  "payload": "{\"id\":123,\"d\":true}",
+  "payload": "123|true",
   "intents": [],
   "rcLimit": 10000
 }
 ```
 
-Because both **@alice and @carol** voted `d = true`, the contract automatically releases the 100 HBD to @alice.
+Because both **@alice and @carol** voted `decision = true`, the contract automatically releases the 100 HBD to @alice.
 
 #### ✅ Result
 
@@ -109,19 +110,19 @@ Each escrow instance represents a single conditional transaction between three p
 
 Each escrow can be in one of two terminal states:
 
-| State    | Description                       | Outcome                                         |
+| Closed    | Description                       | Outcome                                         |
 | -------- | --------------------------------- | ----------------------------------------------- |
-| `open`   | Awaiting decisions                | Pending                                         |
-| `closed` | Finalized after majority decision | `release` (to receiver) or `refund` (to sender) |
+| `false`   | Awaiting decisions                | `pending`                                         |
+| `true` | Finalized after majority decision | `release` (to receiver) or `refund` (to sender) |
 
 ### Example
 
 ```
 Escrow #42
 ├── Name: "Design Project Payment"
-├── From: hive:client1
-├── To: hive:freelancer2
-├── Arbitrator: hive:escrowhub
+├── From: hive:client1 & decision 
+├── To: hive:freelancer2 & decision
+├── Arbitrator: hive:escrowhub & decision
 ├── Amount: 100.000 HBD
 ├── Outcome: pending
 └── Closed: false
@@ -129,7 +130,7 @@ Escrow #42
 
 ## 📖 Exported Functions
 
-Below you’ll find all exported functions usable via [Hive Keychain Playground](https://play.hive-keychain.com/#/request/custom) or through the (upcoming) okinoko terminal.
+Below you’ll find all exported functions usable via [Ōkinoko Terminal](https://terminal.okinoko.io/) or manually via [Hive Keychain Playground](https://play.hive-keychain.com/#/request/custom).
 
 ### 🏗️ Mutations
 
@@ -142,11 +143,7 @@ Creates a new escrow contract between sender, receiver, and arbitrator.
 **Payload:**
 
 ```json5
-{
-  "name": "Design Project",      // mandatory: escrow name (max 100 chars)
-  "to": "hive:freelancer2",      // mandatory: receiver address
-  "arb": "hive:escrowhub"        // mandatory: arbitrator address
-}
+"Design Project|hive:freelancer2|hive:escrowhub"
 ```
 
 **Required Intent:**
@@ -162,10 +159,7 @@ Adds a decision (approve or deny release) from one of the escrow participants.
 **Payload:**
 
 ```json5
-{
-  "id": 42,                      // mandatory: escrow ID
-  "d": true                      // mandatory: decision (true = release / false = refund)
-}
+"42|true"
 ```
 
 Each participant (`from`, `to`, or `arb`) may submit one decision. The decision can be changed until escrow is closed.
@@ -189,85 +183,76 @@ Retrieves a full escrow object by ID.
 
 **Example Payload:**
 
-```
-"42"
-```
+`"42"`
 
 **Response:**
 
-```json
+```json5
 {
-  "id": 42,
-  "name": "Design Project",
-  "from": {"address": "hive:client1", "agree": null},
-  "to": {"address": "hive:freelancer2", "agree": true},
-  "arb": {"address": "hive:escrowhub", "agree": true},
-  "amount": 100.0,
-  "asset": "HBD",
-  "closed": true,
-  "outcome": "release"
+  "id": 42, // escrow ID
+  "n": "Design Project", // name
+  "f": {"a": "hive:client1", "d": "pending"}, // from (address, decision)
+  "t": {"a": "hive:freelancer2", "d": "release"}, // to (address, decision)
+  "arb": {"a": "hive:escrowhub", "d": "release"}, // arbitrator (address, decision)
+  "am": 100.0, // amount
+  "as": "HBD", // asset
+  "cl": true, // closed
+  "o": "release" // outcome
 }
 ```
 
 ## 🔔 On-Chain Events
 
-Each function emits standardized event logs for indexers and user interfaces.
+The contract is not designed for "easy" querrying via the standard api node graphql endpoint. 
+Instead writing additional contract state keys, each function emits standardized event logs for indexers and user interfaces.
 All events are structured as JSON objects with `type`, `attributes`, and `tx` fields.
 
-### Event Summary Table
-
-| Event Type        | Key Attributes                               | Description                   |
-| ----------------- | -------------------------------------------- | ----------------------------- |
-| `escrow_created`  | `id`, `from`, `to`, `arb`, `amount`, `asset` | New escrow created            |
-| `escrow_decision` | `id`, `byRole`, `byAddress`, `decision`      | A participant made a decision |
-| `escrow_closed`   | `id`, `outcome`                              | Escrow finalized              |
-
-### Event Examples
 
 #### 🧾 Escrow Created Event
 
-```json
+```json5
 {
-  "type": "escrow_created",
+  "type": "cr",
   "attributes": {
-    "id": "42",
-    "from": "hive:client1",
-    "to": "hive:freelancer2",
-    "arb": "hive:escrowhub",
-    "amount": "100.000",
-    "asset": "HBD"
+    "id": "42", // escrow id
+    "f": "hive:client1", // from
+    "t": "hive:freelancer2", // to
+    "arb": "hive:escrowhub", // arbitrator
+    "am": "100.000", // amount
+    "as": "HBD" // asset
   },
-  "tx":"txId of creation"
+  "tx": "txId of creation"
 }
 ```
 
 #### 🗳️ Decision Event
 
-```json
+```json5
 {
-  "type": "escrow_decision",
+  "type": "de",
   "attributes": {
-    "id": "42",
-    "byRole": "To",
-    "byAddress": "hive:freelancer2",
-    "decision": "true"
+    "id": "42", // escrow id
+    "r": "t", // role (see json of create event)
+    "a": "hive:freelancer2", // address
+    "d": "release" // decision
   },
-  "tx":"txId of decision"
+  "tx": "txId of decision"
 }
 ```
 
 #### ✅ Escrow Closed Event
 
-```json
+```json5
 {
-  "type": "escrow_closed",
+  "type": "cl",
   "attributes": {
-    "id": "42",
-    "outcome": "release"
+    "id": "42", // escrow id
+    "o": "release" // final outcome
   },
-  "tx":"txId of resolving decision"
+  "tx": "txId of resolving decision"
 }
 ```
 
 ## 📜 License
+
 This project is licensed under the [MIT License](LICENSE).
