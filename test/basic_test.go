@@ -8,11 +8,10 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// collection tests
-
+// create escrow
 func TestEscrowCreate(t *testing.T) {
 	ct := SetupContractTest()
-	// just create an escrow
+
 	CallContract(t, ct, "e_create",
 		[]byte("escrow name|hive:receiver|hive:arbitrator"),
 		[]contracts.Intent{{Type: "transfer.allow", Args: map[string]string{"limit": "1.000", "token": "hive"}}}, "hive:sender", true, uint(100_000_000))
@@ -22,7 +21,16 @@ func TestEscrowCreate(t *testing.T) {
 	CallContract(t, ct, "e_get", []byte("0"), nil, "hive:sender", true, uint(100_000_000))
 }
 
-// general creation of an escrow without enough funds
+// create escrow with name too long
+func TestEscrowCreateNameTooLong(t *testing.T) {
+	ct := SetupContractTest()
+
+	CallContract(t, ct, "e_create",
+		[]byte("01234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890|hive:receiver|hive:arbitrator"),
+		[]contracts.Intent{{Type: "transfer.allow", Args: map[string]string{"limit": "1.000", "token": "hive"}}}, "hive:sender", false, uint(100_000_000))
+}
+
+// create escrow without enough funds
 func TestEscrowCreateNotEnoughFunds(t *testing.T) {
 	ct := SetupContractTest()
 	CallContract(t, ct, "e_create",
@@ -30,19 +38,26 @@ func TestEscrowCreateNotEnoughFunds(t *testing.T) {
 		[]contracts.Intent{{Type: "transfer.allow", Args: map[string]string{"limit": "1.001", "token": "hive"}}}, "hive:sender", false, uint(100_000_000))
 }
 
-// general creation of an escrow without - intent
-func TestEscrowCreateZeroIntent(t *testing.T) {
+// general creation of an escrow with incorrect intent
+func TestEscrowCreateMinusIntent(t *testing.T) {
 	ct := SetupContractTest()
-	// just create an escrow
 	CallContract(t, ct, "e_create",
 		[]byte("escrow name|hive:receiver|hive:arbitrator"),
 		[]contracts.Intent{{Type: "transfer.allow", Args: map[string]string{"limit": "-1.000", "token": "hbd"}}}, "hive:sender", false, uint(100_000_000))
 }
 
+// general creation of an escrow without any intent
+func TestEscrowCreateNoIntent(t *testing.T) {
+	ct := SetupContractTest()
+	CallContract(t, ct, "e_create",
+		[]byte("escrow name|hive:receiver|hive:arbitrator"),
+		nil, "hive:sender", false, uint(100_000_000))
+}
+
 // general creation of an escrow setting self as receiver
 func TestEscrowCreateSelfAsReceiver(t *testing.T) {
 	ct := SetupContractTest()
-	// just create an escrow
+
 	CallContract(t, ct, "e_create",
 		[]byte("escrow name|hive:sender|hive:arbitrator"),
 		[]contracts.Intent{{Type: "transfer.allow", Args: map[string]string{"limit": "1.001", "token": "hbd"}}}, "hive:sender", false, uint(100_000_000))
@@ -51,7 +66,7 @@ func TestEscrowCreateSelfAsReceiver(t *testing.T) {
 // add decision without being an escrow party
 func TestEscrowDecisionNotPartyMember(t *testing.T) {
 	ct := SetupContractTest()
-	// just create an escrow
+
 	CallContract(t, ct, "e_create",
 		[]byte("escrow name|hive:receiver|hive:arbitrator"),
 		[]contracts.Intent{{Type: "transfer.allow", Args: map[string]string{"limit": "1.000", "token": "hive"}}}, "hive:sender", true, uint(100_000_000))
@@ -65,7 +80,7 @@ func TestEscrowDecisionNotPartyMember(t *testing.T) {
 // add decision with invalid outcome parameter
 func TestEscrowDecisionWrongParameter(t *testing.T) {
 	ct := SetupContractTest()
-	// just create an escrow
+
 	CallContract(t, ct, "e_create",
 		[]byte("escrow name|hive:receiver|hive:arbitrator"),
 		[]contracts.Intent{{Type: "transfer.allow", Args: map[string]string{"limit": "1.000", "token": "hive"}}}, "hive:sender", true, uint(100_000_000))
@@ -79,7 +94,7 @@ func TestEscrowDecisionWrongParameter(t *testing.T) {
 // add decision without decision parameter
 func TestEscrowDecisionWrongPayload1(t *testing.T) {
 	ct := SetupContractTest()
-	// just create an escrow
+
 	CallContract(t, ct, "e_create",
 		[]byte("escrow name|hive:receiver|hive:arbitrator"),
 		[]contracts.Intent{{Type: "transfer.allow", Args: map[string]string{"limit": "1.000", "token": "hive"}}}, "hive:sender", true, uint(100_000_000))
@@ -93,7 +108,7 @@ func TestEscrowDecisionWrongPayload1(t *testing.T) {
 // add decision without escrow parameter
 func TestEscrowDecisionWrongPayload2(t *testing.T) {
 	ct := SetupContractTest()
-	// just create an escrow
+
 	CallContract(t, ct, "e_create",
 		[]byte("escrow name|hive:receiver|hive:arbitrator"),
 		[]contracts.Intent{{Type: "transfer.allow", Args: map[string]string{"limit": "1.000", "token": "hive"}}}, "hive:sender", true, uint(100_000_000))
@@ -125,7 +140,7 @@ func TestEscrowGetEscrowNotFound(t *testing.T) {
 // sender and receiver agree to RELEASE
 func TestEscrowDecisionAgreeRelease(t *testing.T) {
 	ct := SetupContractTest()
-	// just create an escrow
+
 	CallContract(t, ct, "e_create",
 		[]byte("escrow name|hive:receiver|hive:arbitrator"),
 		[]contracts.Intent{{Type: "transfer.allow", Args: map[string]string{"limit": "1.000", "token": "hive"}}}, "hive:sender", true, uint(100_000_000))
@@ -148,7 +163,7 @@ func TestEscrowDecisionAgreeRelease(t *testing.T) {
 // sender and receiver disagree / arb agrees ro RELEASE
 func TestEscrowDecisionDisAgreeRelease(t *testing.T) {
 	ct := SetupContractTest()
-	// just create an escrow
+
 	CallContract(t, ct, "e_create",
 		[]byte("escrow name|hive:receiver|hive:arbitrator"),
 		[]contracts.Intent{{Type: "transfer.allow", Args: map[string]string{"limit": "1.000", "token": "hive"}}}, "hive:sender", true, uint(100_000_000))
@@ -175,7 +190,7 @@ func TestEscrowDecisionDisAgreeRelease(t *testing.T) {
 // sender and receiver agree to REFUND
 func TestEscrowDecisionAgreeRefund(t *testing.T) {
 	ct := SetupContractTest()
-	// just create an escrow
+
 	CallContract(t, ct, "e_create",
 		[]byte("escrow name|hive:receiver|hive:arbitrator"),
 		[]contracts.Intent{{Type: "transfer.allow", Args: map[string]string{"limit": "1.000", "token": "hive"}}}, "hive:sender", true, uint(100_000_000))
@@ -197,7 +212,7 @@ func TestEscrowDecisionAgreeRefund(t *testing.T) {
 // sender and receiver disagree / arb agrees ro REFUND
 func TestEscrowDecisionDisAgreeRefund(t *testing.T) {
 	ct := SetupContractTest()
-	// just create an escrow
+
 	CallContract(t, ct, "e_create",
 		[]byte("escrow name|hive:receiver|hive:arbitrator"),
 		[]contracts.Intent{{Type: "transfer.allow", Args: map[string]string{"limit": "1.000", "token": "hive"}}}, "hive:sender", true, uint(100_000_000))
