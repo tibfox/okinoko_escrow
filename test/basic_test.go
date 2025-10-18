@@ -58,8 +58,50 @@ func TestEscrowDecisionNotPartyMember(t *testing.T) {
 
 	// decision on escrow by sender
 	CallContract(t, ct, "e_decide",
-		[]byte("0|true"),
+		[]byte("0|r"),
 		nil, "hive:notmember", false, uint(100_000_000))
+}
+
+// add decision with invalid outcome parameter
+func TestEscrowDecisionWrongParameter(t *testing.T) {
+	ct := SetupContractTest()
+	// just create an escrow
+	CallContract(t, ct, "e_create",
+		[]byte("escrow name|hive:receiver|hive:arbitrator"),
+		[]contracts.Intent{{Type: "transfer.allow", Args: map[string]string{"limit": "1.000", "token": "hive"}}}, "hive:sender", true, uint(100_000_000))
+
+	// decision on escrow by sender
+	CallContract(t, ct, "e_decide",
+		[]byte("0|asd"),
+		nil, "hive:notmreceiverember", false, uint(100_000_000))
+}
+
+// add decision without decision parameter
+func TestEscrowDecisionWrongPayload1(t *testing.T) {
+	ct := SetupContractTest()
+	// just create an escrow
+	CallContract(t, ct, "e_create",
+		[]byte("escrow name|hive:receiver|hive:arbitrator"),
+		[]contracts.Intent{{Type: "transfer.allow", Args: map[string]string{"limit": "1.000", "token": "hive"}}}, "hive:sender", true, uint(100_000_000))
+
+	// decision on escrow by sender
+	CallContract(t, ct, "e_decide",
+		[]byte("0|"),
+		nil, "hive:receiver", false, uint(100_000_000))
+}
+
+// add decision without escrow parameter
+func TestEscrowDecisionWrongPayload2(t *testing.T) {
+	ct := SetupContractTest()
+	// just create an escrow
+	CallContract(t, ct, "e_create",
+		[]byte("escrow name|hive:receiver|hive:arbitrator"),
+		[]contracts.Intent{{Type: "transfer.allow", Args: map[string]string{"limit": "1.000", "token": "hive"}}}, "hive:sender", true, uint(100_000_000))
+
+	// decision on escrow by sender
+	CallContract(t, ct, "e_decide",
+		[]byte("|f"),
+		nil, "hive:receiver", false, uint(100_000_000))
 }
 
 // add decision to unknown escrow
@@ -67,7 +109,7 @@ func TestEscrowDecisionEscrowNotFound(t *testing.T) {
 	ct := SetupContractTest()
 	// decision on escrow by sender
 	CallContract(t, ct, "e_decide",
-		[]byte("0|true"),
+		[]byte("0|r"),
 		nil, "hive:notmember", false, uint(100_000_000))
 }
 
@@ -90,12 +132,12 @@ func TestEscrowDecisionAgreeRelease(t *testing.T) {
 
 	// decision on escrow by sender
 	CallContract(t, ct, "e_decide",
-		[]byte("0|true"),
+		[]byte("0|r"),
 		nil, "hive:sender", true, uint(100_000_000))
 
 	// decision on escrow by receiver
 	CallContract(t, ct, "e_decide",
-		[]byte("0|true"),
+		[]byte("0|r"),
 		nil, "hive:receiver", true, uint(100_000_000))
 	// PrintBalances(ct, []string{"hive:sender", "hive:receiver"})
 	bal := ct.GetBalance("hive:receiver", ledgerDb.AssetHive)
@@ -113,17 +155,17 @@ func TestEscrowDecisionDisAgreeRelease(t *testing.T) {
 
 	// decision on escrow by sender
 	CallContract(t, ct, "e_decide",
-		[]byte("0|false"),
+		[]byte("0|f"),
 		nil, "hive:sender", true, uint(100_000_000))
 
 	// decision on escrow by receiver
 	CallContract(t, ct, "e_decide",
-		[]byte("0|true"),
+		[]byte("0|r"),
 		nil, "hive:receiver", true, uint(100_000_000))
 
 	// decision on escrow by arbitrator
 	CallContract(t, ct, "e_decide",
-		[]byte("0|true"),
+		[]byte("0|r"),
 		nil, "hive:arbitrator", true, uint(100_000_000))
 	// PrintBalances(ct, []string{"hive:sender", "hive:receiver"})
 	bal := ct.GetBalance("hive:receiver", ledgerDb.AssetHive)
@@ -140,12 +182,12 @@ func TestEscrowDecisionAgreeRefund(t *testing.T) {
 
 	// decision on escrow by sender
 	CallContract(t, ct, "e_decide",
-		[]byte("0|false"),
+		[]byte("0|f"),
 		nil, "hive:sender", true, uint(100_000_000))
 
 	// decision on escrow by receiver
 	CallContract(t, ct, "e_decide",
-		[]byte("0|false"),
+		[]byte("0|f"),
 		nil, "hive:receiver", true, uint(100_000_000))
 	// PrintBalances(ct, []string{"hive:sender", "hive:receiver"})
 	bal := ct.GetBalance("hive:sender", ledgerDb.AssetHive)
@@ -162,17 +204,17 @@ func TestEscrowDecisionDisAgreeRefund(t *testing.T) {
 
 	// decision on escrow by sender
 	CallContract(t, ct, "e_decide",
-		[]byte("0|false"),
+		[]byte("0|f"),
 		nil, "hive:sender", true, uint(100_000_000))
 
 	// decision on escrow by receiver
 	CallContract(t, ct, "e_decide",
-		[]byte("0|true"),
+		[]byte("0|r"),
 		nil, "hive:receiver", true, uint(100_000_000))
 
 	// decision on escrow by arbitrator
 	CallContract(t, ct, "e_decide",
-		[]byte("0|false"),
+		[]byte("0|f"),
 		nil, "hive:arbitrator", true, uint(100_000_000))
 	// PrintBalances(ct, []string{"hive:sender", "hive:receiver"})
 	bal := ct.GetBalance("hive:sender", ledgerDb.AssetHive)
