@@ -54,13 +54,13 @@ After finishing the website, @alice checks all agreed-upon requirements and repo
   "net_id": "vsc-mainnet",
   "contract_id": "vsc1BonkE2CtHqjnkFdH8hoAEMP25bbWhSr3UA",
   "action": "e_decide",
-  "payload": "123|true",
+  "payload": "123|r",
   "intents": [],
   "rcLimit": 10000
 }
 ```
 
-This indicates that she believes the project has been successfully completed (`escrow id = 123` & `decision = true`).
+This indicates that she believes the project has been successfully completed (`escrow id = 123` & `decision = r`).
 
 #### 🙅 Step 3: Bob disagrees
 
@@ -71,7 +71,7 @@ This indicates that she believes the project has been successfully completed (`e
   "net_id": "vsc-mainnet",
   "contract_id": "vsc1BonkE2CtHqjnkFdH8hoAEMP25bbWhSr3UA",
   "action": "e_decide",
-  "payload": "123|false",
+  "payload": "123|f",
   "intents": [],
   "rcLimit": 10000
 }
@@ -88,7 +88,7 @@ This means @bob does **not** agree to release the funds yet (`decision = false`)
   "net_id": "vsc-mainnet",
   "contract_id": "vsc1BonkE2CtHqjnkFdH8hoAEMP25bbWhSr3UA",
   "action": "e_decide",
-  "payload": "123|true",
+  "payload": "123|r",
   "intents": [],
   "rcLimit": 10000
 }
@@ -112,8 +112,8 @@ Each escrow can be in one of two terminal states:
 
 | Closed    | Description                       | Outcome                                         |
 | -------- | --------------------------------- | ----------------------------------------------- |
-| `false`   | Awaiting decisions                | `pending`                                         |
-| `true` | Finalized after majority decision | `release` (to receiver) or `refund` (to sender) |
+| `false`   | Awaiting decisions                | `p` (pending)                                        | 
+| `true` | Finalized after majority decision | `r` (release to receiver) or `f` (refund to sender) |
 
 ### Example
 
@@ -154,20 +154,20 @@ A valid `transfer.allow` intent must be included in the transaction
 
 **Action:** `e_decide`
 
-Adds a decision (approve or deny release) from one of the escrow participants.
+Adds a decision (`r` for release or `f` for refund) from one of the escrow participants.
 
 **Payload:**
 
 ```json5
-"42|true"
+"42|r"
 ```
 
-Each participant (`from`, `to`, or `arb`) may submit one decision. The decision can be changed until escrow is closed.
+Each participant (`from`, `to`, or `arbitrator`) may submit one decision. The decision can be changed until escrow is closed.
 
 When two matching decisions exist:
 
-* `true` → funds released to receiver
-* `false` → funds refunded to sender
+* `r` → funds released to receiver
+* `f` → funds refunded to sender
 
 ### 🔍 Queries
 
@@ -191,13 +191,13 @@ Retrieves a full escrow object by ID.
 {
   "id": 42, // escrow ID
   "n": "Design Project", // name
-  "f": {"a": "hive:client1", "d": "pending"}, // from (address, decision)
-  "t": {"a": "hive:freelancer2", "d": "release"}, // to (address, decision)
-  "arb": {"a": "hive:escrowhub", "d": "release"}, // arbitrator (address, decision)
+  "f": {"a": "hive:client1", "d": "p"}, // from (address, decision)
+  "t": {"a": "hive:freelancer2", "d": "r"}, // to (address, decision)
+  "arb": {"a": "hive:escrowhub", "d": "r"}, // arbitrator (address, decision)
   "am": 100.0, // amount
   "as": "HBD", // asset
   "cl": true, // closed
-  "o": "release" // outcome
+  "o": "r" // outcome (r=release / f=refund)
 }
 ```
 
@@ -232,9 +232,9 @@ All events are structured as JSON objects with `type`, `attributes`, and `tx` fi
   "type": "de",
   "attributes": {
     "id": "42", // escrow id
-    "r": "t", // role (see json of create event)
+    "r": "t", // role (f=From / t=to / arb=arbitrator)
     "a": "hive:freelancer2", // address
-    "d": "release" // decision
+    "d": "r" // decision (r=release / f=refund)
   },
   "tx": "txId of decision"
 }
@@ -247,7 +247,7 @@ All events are structured as JSON objects with `type`, `attributes`, and `tx` fi
   "type": "cl",
   "attributes": {
     "id": "42", // escrow id
-    "o": "release" // final outcome
+    "o": "r" // final outcome (r=release / f=refund)
   },
   "tx": "txId of resolving decision"
 }

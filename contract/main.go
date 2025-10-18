@@ -113,12 +113,12 @@ func CsvToDecisionArgs(csv *string) DecisionArgs {
 	var decision uint8
 	// Map common boolean/bit encodings to protocol decisions.
 	switch decStr {
-	case "true", "TRUE", "True", "1":
+	case "r":
 		decision = DecisionRelease
-	case "false", "FALSE", "False", "0":
+	case "f":
 		decision = DecisionRefund
 	default:
-		sdk.Abort("invalid decision: must be true/false or 1/0")
+		sdk.Abort("invalid decision: must be r/f")
 	}
 
 	return DecisionArgs{
@@ -467,11 +467,11 @@ func processEscrowOutcome(escrowID uint64, decs []uint8, txId string) {
 func friendlyOutcome(o uint8) string {
 	switch o {
 	case DecisionRefund:
-		return "refund"
+		return "f"
 	case DecisionRelease:
-		return "release"
+		return "r"
 	default:
-		return "pending"
+		return "p"
 	}
 }
 
