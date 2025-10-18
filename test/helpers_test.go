@@ -69,12 +69,12 @@ func CallContract(t *testing.T, ct *test_utils.ContractTest, action string, payl
 		Intents:    intents,
 	})
 
-	PrintLogs(logs)
-	PrintErrorIfFailed(result)
-	fmt.Printf("return msg: %s\n", result.Ret)
+	// PrintLogs(logs)
+	// PrintErrorIfFailed(result)
+
 	fmt.Printf("gas used: %d\n", gasUsed)
 	fmt.Printf("gas max : %d\n", maxGas)
-
+	fmt.Printf("return msg: %s\n", result.Ret)
 	assert.LessOrEqual(t, gasUsed, maxGas, fmt.Sprintf("Gas %d exceeded limit %d", gasUsed, maxGas))
 
 	if expectedResult {

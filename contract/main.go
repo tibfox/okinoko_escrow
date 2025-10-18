@@ -1,8 +1,6 @@
 package main
 
 import (
-	"encoding/json"
-	"fmt"
 	"okinoko_escrow/sdk"
 	"strconv"
 	"strings"
@@ -159,7 +157,13 @@ func CreateEscrow(payload *string) *string {
 
 	input.Validate(*creator)
 
-	escrowID := newEscrowID()
+	var escrowID uint64
+	ptr := sdk.StateGetObject(EscrowCount)
+	if ptr == nil || *ptr == "" {
+		escrowID = 0
+	} else if id, err := strconv.ParseUint(*ptr, 10, 64); err == nil {
+		escrowID = id
+	}
 	ta := GetFirstTransferAllow(sdk.GetEnv().Intents)
 	if ta == nil {
 		sdk.Abort("intent needed")
@@ -217,6 +221,7 @@ func AddDecision(payload *string) *string {
 	input := CsvToDecisionArgs(payload)
 	roles := loadRoles(input.EscrowID)
 	sender := sdk.GetEnvKey("msg.sender")
+	txID := sdk.GetEnvKey("tx.id")
 
 	role := getRoleOfSender(sender, roles)
 	if role == nil {
@@ -620,12 +625,7 @@ type Event struct {
 
 // emitEvent logs an event as JSON.
 func emitEvent(eventType string, attributes map[string]string, txID string) {
-	event := Event{
-		Type:       eventType,
-		Attributes: attributes,
-		TxID:       txID,
-	}
-	sdk.Log(ToJSON(event, eventType+" event data"))
+	sdk.Log(fastJSONEvent(eventType, attributes, txID))
 }
 
 // EmitEscrowCreatedEvent emits an event for a newly created escrow.
@@ -656,4 +656,326 @@ func EmitEscrowClosedEvent(escrowID uint64, outcome string, txID string) {
 		"id": strconv.FormatUint(escrowID, 10),
 		"o":  outcome,
 	}, txID)
+}
+
+// JSON HELPERS (to reduce gas by~50% )
+
+// ---------- EscrowAccount ----------
+
+func fastJSONEscrowAccount(a *EscrowAccount) string {
+	if a == nil {
+		return `{"a":"","ag":null,"dTx":null}`
+	}
+	addr := a.Address.String()
+
+	// pre-size to avoid realloc
+	out := make([]byte, 0, 96)
+	out = append(out, `{"a":"`...)
+	out = append(out, escapeJSONString(addr)...)
+	out = append(out, `","ag":`...)
+
+	if a.Agree == nil {
+		out = append(out, "null"...)
+	} else if *a.Agree {
+		out = append(out, "true"...)
+	} else {
+		out = append(out, "false"...)
+	}
+
+	out = append(out, `,"dTx":`...)
+	if a.DecisionTxID == nil {
+		out = append(out, "null"...)
+	} else {
+		out = append(out, '"')
+		out = append(out, escapeJSONString(*a.DecisionTxID)...)
+		out = append(out, '"')
+	}
+	out = append(out, '}')
+	return string(out)
+}
+
+func fastParseEscrowAccount(data string) *EscrowAccount {
+	// This expects same shape produced by fastJSONEscrowAccount.
+	a := &EscrowAccount{}
+	getStr := func(key string) string {
+		idx := strings.Index(data, `"`+key+`":"`)
+		if idx == -1 {
+			return ""
+		}
+		start := idx + len(key) + 4
+		end := strings.IndexByte(data[start:], '"')
+		if end == -1 {
+			return ""
+		}
+		return data[start : start+end]
+	}
+
+	a.Address = sdk.Address(getStr("a"))
+	if strings.Contains(data, `"ag":true`) {
+		t := true
+		a.Agree = &t
+	} else if strings.Contains(data, `"ag":false`) {
+		f := false
+		a.Agree = &f
+	}
+	if tx := getStr("dTx"); tx != "" {
+		a.DecisionTxID = &tx
+	}
+	return a
+}
+
+// ---------- Escrow ----------
+
+func fastJSONEscrow(e *Escrow) string {
+	out := make([]byte, 0, 512)
+
+	out = append(out, `{"id":`...)
+	out = strconv.AppendUint(out, e.ID, 10)
+	out = append(out, `,"n":"`...)
+	out = append(out, escapeJSONString(e.Name)...)
+	out = append(out, `","f":`...)
+	out = append(out, fastJSONEscrowAccount(&e.From)...)
+	out = append(out, `,"t":`...)
+	out = append(out, fastJSONEscrowAccount(&e.To)...)
+	out = append(out, `,"arb":`...)
+	out = append(out, fastJSONEscrowAccount(&e.Arbitrator)...)
+	out = append(out, `,"cTx":"`...)
+	out = append(out, escapeJSONString(e.CreationTxID)...)
+	out = append(out, `","am":`...)
+	out = append(out, forceFloatString(float64(e.AmountMilli)/1000)...)
+	out = append(out, `,"as":"`...)
+	out = append(out, escapeJSONString(e.Asset.String())...)
+	out = append(out, `","cl":`...)
+	out = strconv.AppendBool(out, e.Closed)
+	out = append(out, `,"o":"`...)
+	out = append(out, escapeJSONString(e.Outcome)...)
+	out = append(out, `"}`...)
+	return string(out)
+}
+
+// forceFloatString ensures that even whole numbers render with a decimal point (e.g., 1 -> "1.0").
+func forceFloatString(v float64) string {
+	s := strconv.FormatFloat(v, 'f', -1, 64)
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == '.' || c == 'e' || c == 'E' {
+			return s
+		}
+	}
+	return s + ".000"
+}
+
+func fastParseEscrow(data string) *Escrow {
+	e := &Escrow{}
+
+	// strings (quoted)
+	getStr := func(key string) string {
+		idx := strings.Index(data, `"`+key+`":"`)
+		if idx == -1 {
+			return ""
+		}
+		start := idx + len(key) + 4
+		end := strings.IndexByte(data[start:], '"')
+		if end == -1 {
+			return ""
+		}
+		return data[start : start+end]
+	}
+
+	// id (number, unquoted)
+	if idNum := grabNumber(data, "id"); idNum != "" {
+		if id, err := strconv.ParseUint(idNum, 10, 64); err == nil {
+			e.ID = id
+		}
+	}
+
+	e.Name = getStr("n")
+	e.CreationTxID = getStr("cTx")
+	e.Outcome = getStr("o")
+
+	// amount (number, unquoted)
+	if amNum := grabNumber(data, "am"); amNum != "" {
+		if am, err := strconv.ParseFloat(amNum, 64); err == nil {
+			e.AmountMilli = uint64(am * 1000)
+		}
+	}
+
+	e.Asset = sdk.Asset(getStr("as"))
+	e.Closed = strings.Contains(data, `"cl":true`)
+
+	// subaccounts
+	if idx := strings.Index(data, `"f":{`); idx != -1 {
+		if end := strings.Index(data[idx:], `},"t":`); end > 0 {
+			e.From = *fastParseEscrowAccount(data[idx+4 : idx+end+1])
+		}
+	}
+	if idx := strings.Index(data, `"t":{`); idx != -1 {
+		if end := strings.Index(data[idx:], `},"arb":`); end > 0 {
+			e.To = *fastParseEscrowAccount(data[idx+4 : idx+end+1])
+		}
+	}
+	if idx := strings.Index(data, `"arb":{`); idx != -1 {
+		if end := strings.Index(data[idx:], `},"cTx":`); end > 0 {
+			e.Arbitrator = *fastParseEscrowAccount(data[idx+7 : idx+end+1])
+		}
+	}
+	return e
+}
+
+// ---------- Event ----------
+
+func fastJSONEvent(t string, att map[string]string, txID string) string {
+	out := make([]byte, 0, 256)
+	out = append(out, `{"t":"`...)
+	out = append(out, t...)
+	out = append(out, `","att":{`...)
+
+	i := 0
+	for k, v := range att {
+		if i > 0 {
+			out = append(out, ',')
+		}
+		out = append(out, '"')
+		out = append(out, k...)
+		out = append(out, `":"`...)
+		out = append(out, v...)
+		out = append(out, '"')
+		i++
+	}
+
+	out = append(out, `},"tx":"`...)
+	out = append(out, txID...)
+	out = append(out, `"}`...)
+	return string(out)
+}
+
+func fastParseCreateEscrowArgs(data string) *CreateEscrowArgs {
+	var args CreateEscrowArgs
+
+	getStr := func(key string) string {
+		idx := strings.Index(data, `"`+key+`":"`)
+		if idx == -1 {
+			return ""
+		}
+		start := idx + len(key) + 4
+		end := strings.IndexByte(data[start:], '"')
+		if end == -1 {
+			return ""
+		}
+		return data[start : start+end]
+	}
+
+	args.Name = getStr("name")
+	args.To = getStr("to")
+	args.Arbitrator = getStr("arb")
+	return &args
+}
+
+func fastParseDecisionArgs(data string) *DecisionArgs {
+	var args DecisionArgs
+	if i := strings.Index(data, `"id":`); i != -1 {
+		start := i + 5
+		j := start
+		for j < len(data) && data[j] >= '0' && data[j] <= '9' {
+			j++
+		}
+		if j > start {
+			if id, err := strconv.ParseUint(data[start:j], 10, 64); err == nil {
+				args.EscrowID = &id
+			}
+		}
+	}
+	if strings.Index(data, `"d":true`) != -1 {
+		t := true
+		args.Decision = &t
+	} else if strings.Index(data, `"d":false`) != -1 {
+		f := false
+		args.Decision = &f
+	}
+	return &args
+}
+
+// escapeJSONString returns a JSON-safe version of s without adding quotes.
+// It escapes backslashes, quotes, and control characters like newlines, tabs, etc.
+func escapeJSONString(s string) string {
+	if len(s) == 0 {
+		return ""
+	}
+
+	// Pre-allocate 10–20 % extra space for escapes.
+	out := make([]byte, 0, len(s)+len(s)/8)
+
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch c {
+		case '\\':
+			out = append(out, '\\', '\\')
+		case '"':
+			out = append(out, '\\', '"')
+		case '\b':
+			out = append(out, '\\', 'b')
+		case '\f':
+			out = append(out, '\\', 'f')
+		case '\n':
+			out = append(out, '\\', 'n')
+		case '\r':
+			out = append(out, '\\', 'r')
+		case '\t':
+			out = append(out, '\\', 't')
+		default:
+			if c < 0x20 {
+				// Control chars → \u00XX form
+				out = append(out, '\\', 'u', '0', '0')
+				hi := c >> 4
+				lo := c & 0xF
+				if hi < 10 {
+					out = append(out, '0'+hi)
+				} else {
+					out = append(out, 'a'+hi-10)
+				}
+				if lo < 10 {
+					out = append(out, '0'+lo)
+				} else {
+					out = append(out, 'a'+lo-10)
+				}
+			} else {
+				out = append(out, c)
+			}
+		}
+	}
+	return string(out)
+}
+
+// grabNumber extracts an unquoted JSON number following `"key":`
+// Supports optional sign, decimal, and exponent; ignores surrounding whitespace.
+func grabNumber(data, key string) string {
+	idx := strings.Index(data, `"`+key+`":`)
+	if idx == -1 {
+		return ""
+	}
+	// position after `"key":`
+	i := idx + len(key) + 3
+	// skip whitespace
+	for i < len(data) {
+		switch data[i] {
+		case ' ', '\t', '\n', '\r':
+			i++
+			continue
+		}
+		break
+	}
+	// capture number chars
+	j := i
+	for j < len(data) {
+		c := data[j]
+		if (c >= '0' && c <= '9') || c == '-' || c == '+' || c == '.' || c == 'e' || c == 'E' {
+			j++
+		} else {
+			break
+		}
+	}
+	if j == i {
+		return ""
+	}
+	return data[i:j]
 }

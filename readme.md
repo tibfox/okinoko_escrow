@@ -124,7 +124,7 @@ Escrow #42
 ├── To: hive:freelancer2 & decision
 ├── Arbitrator: hive:escrowhub & decision
 ├── Amount: 100.000 HBD
-├── Outcome: pending
+├── Outcome: p
 └── Closed: false
 ```
 
